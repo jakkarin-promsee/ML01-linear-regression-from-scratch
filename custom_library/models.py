@@ -1,7 +1,7 @@
+from copy import deepcopy
 from typing import List, Union
 import matplotlib.pyplot as plt
 import numpy as np
-from zmq import NULL
 from . import utils as ut
 
 class DenseLayer:
@@ -19,9 +19,11 @@ class ActivationLayer:
         if(method=="relu"):
             self.activate_func = self.relu
             self.activate_derivative = self.relu_derivative
-        else:
+        elif method in ("", "linear"):
             self.activate_func = None
             self.activate_derivative = None
+        else:
+            raise ValueError(f"Unknown activation: {method}")
 
     def forward(self, z):
         if(self.activate_func is not None):
@@ -31,7 +33,7 @@ class ActivationLayer:
     def backward(self, z):
         if(self.activate_derivative is not None):
             return self.activate_derivative(z)
-        return z
+        return np.ones_like(z)
     
     # ----------------------------- Method Part ----------------------------
 
@@ -47,7 +49,7 @@ class ActivationLayer:
 
 class History:
     def __init__(self):
-        # Each entry = [train_acc, val_acc]
+        # Each entry = [train_mae, val_mae]
         self.history = []
 
         # Each entry = [pred, y_true]
@@ -61,15 +63,15 @@ class History:
 
     def save_model(self, layers, val_acc):
         """Save model weights"""
-        self.layers = layers
+        self.layers = deepcopy(layers)
 
         if(self.val_acc == None):
-            self.best_layers = layers
+            self.best_layers = deepcopy(layers)
             self.val_acc = val_acc
             return
 
         if(self.val_acc > val_acc):
-            self.best_layers = layers
+            self.best_layers = deepcopy(layers)
             self.val_acc = val_acc
     
     def get_layers(self):
@@ -82,7 +84,7 @@ class History:
         return self.val_acc
 
     def save(self, train_acc, val_acc):
-        """Store training and validation accuracy per epoch"""
+        """Store training and validation MAE per epoch"""
         self.history.append(np.array([train_acc, val_acc]))
 
     def save_predict(self, X, predict, y_true):
@@ -125,7 +127,7 @@ class History:
         plt.show()
 
     def evaluate(self, start=0, end=None):
-        """Plot training and validation accuracy history"""
+        """Plot training and validation MAE history"""
         if not self.history:
             print("No training history available.")
             return
@@ -137,10 +139,10 @@ class History:
         train_acc = hist_arr[start:end, 0]
         val_acc = hist_arr[start:end, 1]
 
-        plt.plot(train_acc, label='Train Accuracy')
-        plt.plot(val_acc, label='Validation Accuracy')
+        plt.plot(train_acc, label='Train MAE')
+        plt.plot(val_acc, label='Validation MAE')
         plt.xlabel('Epoch')
-        plt.ylabel('Accuracy')
+        plt.ylabel('MAE')
         plt.title('Training History')
         plt.legend()
         plt.show()
@@ -159,14 +161,14 @@ class Lr_Models:
 
         # Using type hints.
         self.layers: List[Union[DenseLayer, ActivationLayer]] = []
-        self.last_output_dim = NULL
+        self.last_output_dim = None
     
-    def add(self, dense, activation="", input_shape=NULL):
+    def add(self, dense, activation="", input_shape=None):
         """Add layer to models. First adding should provide input_shape"""
         # Set input_shape
-        if(self.last_output_dim == NULL and input_shape == NULL):
+        if(self.last_output_dim is None and input_shape is None):
             raise ValueError("Input shape missing")
-        elif(self.last_output_dim == NULL):
+        elif(self.last_output_dim is None):
             self.last_output_dim = input_shape
 
         # Create Dense layer
@@ -184,10 +186,12 @@ class Lr_Models:
         layer = ActivationLayer(method)
         self.layers.append(layer)
 
-    def load(self, history=History()):
+    def load(self, history=None):
         """"""
+        if history is None:
+            raise ValueError("History is required")
         self.history = history
-        self.layers = history.get_layers()
+        self.layers = deepcopy(history.get_layers())
 
     def total_params(self):
         """Get totoal parameters (int)"""
@@ -195,16 +199,19 @@ class Lr_Models:
     
     
     def predict_best(self, X):
-        self.layers = self.history.get_best_layers()
-        pred = self.predict(X)
-        self.layers = self.history.get_layers()
-
-        return pred
+        original_layers = self.layers
+        try:
+            self.layers = self.history.get_best_layers()
+            return self.predict(X)
+        finally:
+            self.layers = original_layers
     
     def predict(self, X):
         """Get prediction from single point / array point"""
         # Intial first a to forward
-        a = X
+        a = np.asarray(X)
+        if a.ndim == 1:
+            a = a.reshape(1, -1)
 
         for layer in self.layers:
             # If now we're on dense layer
@@ -265,7 +272,7 @@ class Lr_Models:
                 y_pred_batch = a
 
                 # dL/dz (MSE) = (2/N)*(zi-yi)
-                dL_dz = (2/batch_size) * (y_pred_batch - y_true_batch)
+                dL_dz = (2/y_pred_batch.size) * (y_pred_batch - y_true_batch)
 
                 # Set iterator
                 i = len(zal)-1 
@@ -293,12 +300,14 @@ class Lr_Models:
                         dL_db = np.sum(dL_dz, axis=0, keepdims=True)
                         
 
+                        # Propagate with the same weights used in the forward pass.
+                        dL_da_previous = np.dot(dL_dz, layer.W.T)
+
                         # Update weights and biases
                         layer.W -= learning_rate * dL_dW
                         layer.b -= learning_rate * dL_db
 
-                        # Not has activate function yet
-                        dL_dz = np.dot(dL_dz, layer.W.T)
+                        dL_dz = dL_da_previous
 
                     if(isinstance(layer, ActivationLayer)):
                         # compute dL_dz for the next layer (if any)

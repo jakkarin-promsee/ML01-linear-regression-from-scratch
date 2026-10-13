@@ -18,13 +18,6 @@ def r2_score(y_true, y_pred):
     r2 = 1 - (ss_res / ss_tot)
     return r2
 
-def accuracy(y_true, y_pred):
-    maes = mae(y_true, y_pred)
-    accuracy = 1 - maes / (y_true.max() - y_true.min())
-    return maes 
-
-import numpy as np
-
 def split_data(X, y, split_ratio=0.8):
     # 1. Get the number of samples
     num_samples = X.shape[0]
