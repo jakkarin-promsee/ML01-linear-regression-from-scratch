@@ -162,3 +162,7 @@ MAE is an error, so **lower is better**. The evaluation split is used for monito
 ## Scope
 
 This is an educational reconstruction of the chain rule and mini-batch training using NumPy. It supports dense layers, optional ReLU activations, a linear regression output, and synthetic scalar regression targets. It does not attempt to be a general neural-network framework.
+
+## License
+
+Original code and documentation authored by Jakkarin Promsee are licensed under the [MIT License](LICENSE). Third-party code, assets, datasets, and other materials are not covered by this license; their original terms apply.
